@@ -1,25 +1,23 @@
 import os
 import subprocess
 
-def _install(pkg):
-    subprocess.run(
-        ["pip", "install", pkg, "-q", "--break-system-packages"],
-        capture_output=True
-    )
+def _run(cmd):
+    subprocess.run(cmd, capture_output=True)
 
 # pyyaml
 try:
     import yaml
 except ImportError:
-    _install("pyyaml")
+    _run(["pip", "install", "pyyaml", "-q", "--break-system-packages"])
 
-# playwright
+# playwright 패키지
 try:
     import playwright
 except ImportError:
-    _install("playwright")
-    # Chromium 브라우저 바이너리 설치
-    subprocess.run(
-        ["python3", "-m", "playwright", "install", "chromium"],
-        capture_output=True
-    )
+    _run(["pip", "install", "playwright", "-q", "--break-system-packages"])
+
+# Chromium 시스템 의존성 (libglib, libnss 등)
+_run(["playwright", "install-deps", "chromium"])
+
+# Chromium 브라우저 바이너리
+_run(["playwright", "install", "chromium"])
