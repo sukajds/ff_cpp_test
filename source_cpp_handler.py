@@ -1,16 +1,11 @@
 """
 source_cpp_handler.py
-쿠팡플레이 핸들러 - 개발 중단된 .pyf 파일 대체 구현
+쿠팡플레이 핸들러 - Playwright 헤드리스 브라우저 기반 로그인
 
-[작동 원리]
-1. login.coupang.com 에서 쿠키 기반 로그인
-2. 쿠팡플레이 API 세션 유지
-3. Live/News 채널 목록 및 스트림 URL 제공
-
-[주의]
-- bm_sv 쿠키: Akamai Bot Manager 생성 세션 변수.
-  자동화 환경에서 없거나 단순 값으로 채워질 수 있음.
-- 2FA 활성화 계정은 자동 로그인 불가.
+[로그인 방식]
+- requests 단독 사용 시 Akamai Bot Manager 에 의해 403 차단됨
+- Playwright(Chromium) 로 실제 브라우저처럼 로그인 후 쿠키 추출
+- 추출한 쿠키를 requests.Session 에 주입하여 API 호출
 """
 
 import json, os, re, time, traceback, uuid
@@ -33,7 +28,6 @@ except Exception:
 CPP_HOST   = "https://www.coupangplay.com"
 LOGIN_HOST = "https://login.coupang.com"
 LOGIN_PAGE = f"{LOGIN_HOST}/login/login.pang"
-LOGIN_POST = f"{LOGIN_HOST}/login/loginProcess.pang"
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -80,73 +74,104 @@ def _new_sess():
 
 
 # ═══════════════════════════════════════════════════════
-#  로그인
+#  로그인 (Playwright 헤드리스 브라우저)
+#  requests 단독으로는 Akamai Bot Manager 에 의해 403 차단됨
 # ═══════════════════════════════════════════════════════
 
 def _do_login(username, password):
     log = _log()
     s = _new_sess()
 
-    # 1) 쿠팡플레이 메인 → 초기 쿠키
     try:
-        s.get(CPP_HOST + "/", timeout=15)
-    except Exception: pass
-
-    # 2) 로그인 페이지 로드 → CSRF
-    try:
-        r = s.get(LOGIN_PAGE,
-                  params={"rtnUrl": CPP_HOST + "/", "vendorLogin": "false"},
-                  timeout=15)
-        log.debug(f"[CPP] login page {r.status_code}")
-    except Exception as e:
-        log.error(f"[CPP] login page err: {e}")
+        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+    except ImportError:
+        log.error("[CPP] playwright 미설치. pip install playwright && playwright install chromium")
         return False
 
-    csrf = ""
-    for pat in [
-        r'name=["\']_csrf["\'][^>]*value=["\']([^"\']+)["\']',
-        r'value=["\']([^"\']+)["\'][^>]*name=["\']_csrf["\']',
-        r'<input[^>]+id=["\']_csrf["\'][^>]*value=["\']([^"\']+)["\']',
-    ]:
-        m = re.search(pat, r.text)
-        if m: csrf = m.group(1); break
+    log.info("[CPP] Playwright 브라우저로 로그인 시도")
 
-    # 3) 로그인 POST
-    form = {
-        "email": username, "password": password,
-        "rememberMe": "true", "vendorLogin": "false",
-        "rtnUrl": CPP_HOST + "/",
-    }
-    if csrf: form["_csrf"] = csrf
-
-    try:
-        r = s.post(
-            LOGIN_POST, data=form,
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Referer": LOGIN_PAGE,
-                "Accept": "text/html,*/*",
-                "Origin": LOGIN_HOST,
-            },
-            allow_redirects=True, timeout=20,
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-blink-features=AutomationControlled",
+            ],
         )
-        log.debug(f"[CPP] login POST {r.status_code} => {r.url}")
-    except Exception as e:
-        log.error(f"[CPP] login POST err: {e}")
-        return False
+        ctx = browser.new_context(
+            user_agent=UA,
+            locale="ko-KR",
+            timezone_id="Asia/Seoul",
+            viewport={"width": 1280, "height": 800},
+        )
+        page = ctx.new_page()
 
-    # 4) 결과 판정
-    if "login.coupang.com/login" in r.url:
-        m = re.search(r'class=["\']error[^>]*>([^<]{3,80})', r.text)
-        msg = m.group(1).strip() if m else "로그인 실패"
-        log.error(f"[CPP] 로그인 실패: {msg}")
-        return False
-    if any(x in r.url.lower() for x in ("otp", "verify", "2fa", "security")):
-        log.error("[CPP] 2단계 인증 필요 - 자동 로그인 불가능")
-        return False
+        try:
+            # 1) 쿠팡플레이 메인 -> 초기 쿠키/세션
+            log.debug("[CPP] 쿠팡플레이 메인 접속")
+            page.goto(CPP_HOST + "/", wait_until="domcontentloaded", timeout=20000)
 
-    log.info(f"[CPP] 로그인 성공 (쿠키: {[c.name for c in s.cookies]})")
-    return True
+            # 2) 로그인 페이지로 이동
+            login_url = f"{LOGIN_PAGE}?rtnUrl={CPP_HOST}/&vendorLogin=false"
+            log.debug("[CPP] 로그인 페이지 이동")
+            page.goto(login_url, wait_until="domcontentloaded", timeout=20000)
+
+            # 3) 이메일/비밀번호 입력
+            page.wait_for_selector(
+                "input[name='email'], input[type='email'], #email",
+                timeout=10000
+            )
+            page.fill("input[name='email'], input[type='email'], #email", username)
+            page.fill("input[name='password'], input[type='password'], #password", password)
+
+            # 4) 로그인 버튼 클릭
+            page.click(
+                "button[type='submit'], input[type='submit'], "
+                ".login-btn, #btnLogin, .btn-login"
+            )
+
+            # 5) 결과 대기
+            try:
+                page.wait_for_url(
+                    lambda url: "login.coupang.com/login" not in url,
+                    timeout=15000
+                )
+            except PWTimeout:
+                pass
+
+            final_url = page.url
+            log.debug(f"[CPP] 최종 URL: {final_url}")
+
+            # 6) 실패 판정
+            if "login.coupang.com/login" in final_url:
+                err_el = page.query_selector(".error-message, .alert, .error, #errMsg")
+                msg = err_el.inner_text().strip() if err_el else "아이디 또는 비밀번호 오류"
+                log.error(f"[CPP] 로그인 실패: {msg}")
+                browser.close()
+                return False
+
+            if any(x in final_url.lower() for x in ("otp", "verify", "2fa", "security")):
+                log.error("[CPP] 2단계 인증 필요 - 자동 로그인 불가")
+                browser.close()
+                return False
+
+            # 7) 쿠키 추출 -> requests.Session 에 주입
+            cookies = ctx.cookies()
+            log.info(f"[CPP] 브라우저 로그인 성공, 쿠키 {len(cookies)}개 추출")
+            for ck in cookies:
+                domain = ck.get("domain", ".coupang.com")
+                if not domain.startswith("."):
+                    domain = "." + domain
+                s.cookies.set(ck["name"], ck["value"], domain=domain)
+
+            browser.close()
+            return True
+
+        except Exception as e:
+            log.error(f"[CPP] Playwright 오류: {e}\n{traceback.format_exc()}")
+            browser.close()
+            return False
 
 
 def _user_info(s):
@@ -384,7 +409,7 @@ class CPP_Handler:
     @staticmethod
     def make_m3u():
         chs = _fetch_channels()
-        pkg = _PLUGIN.package_name if _PLUGIN else "ff_cpp"
+        pkg = _PLUGIN.package_name if _PLUGIN else "ff_cpp_test"
         lines = ["#EXTM3U"]
         for ch in chs:
             cid  = ch["channel_id"]
