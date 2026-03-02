@@ -5,7 +5,7 @@ setting = {
     "home_module": None,
     "menu": {
         "uri": __package__,
-        "name": "쿠팡플레이",
+        "name": "쿠팡플레이(테스트)",
         "list": [
             {
                 "uri": "main/setting",
