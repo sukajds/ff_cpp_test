@@ -1,0 +1,13 @@
+primary: true
+code: coupangplay
+title: '[CoupangPlay]'
+year: 2023
+genres: Live
+posters: https://cdn.discordapp.com/attachments/877784202651787316/1131781215960178689/coupangplay.png
+summary: ''
+extras:
+- mode: "mp4"
+  type: "featurette"
+  param: "https://cdn.discordapp.com/attachments/973582802102648882/1006136924446150769/1.mp4"
+  title: "방송중인 채널이 없습니다."
+  thumb: "https://media.discordapp.net/attachments/973582802102648882/1006128472856465458/unknown.png"

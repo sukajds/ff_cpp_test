@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+
+{% block head %}
+{{ super() }}
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<style type="text/css">
+  #result_table.table tbody {
+    display: block;
+    max-height: 1000px;
+    overflow-y: auto;
+  }
+  #result_table.table thead,
+  #result_table.table tbody tr {
+    display: table;
+    width:100%;
+    table-layout: fixed;
+  }
+</style>
+
+<div class="container col-sm-8 d-flex justify-content-center align-items-center mt-0 mb-0 flex-column">
+<video id="hjs1" controls="" autoplay="false" playsinline="" style="width: 100%; background-color: black;"></video>
+<p class="text-sm ml-1 mb-0">
+<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=" width="15" height="15" title="" id="play_src">
+<span id="play_info" class="align-text-top"></span>
+</p>
+</div>
+
+<div>
+  {{ macros.m_button_group([['list_channel_reload_btn', '새로고침']])}}
+  <p class="mt-2 mb-1 text-sm small text-muted">마지막 업데이트:<span id="list_info" class="ml-1">없음</span></p>
+  <div id="list_div" class="mb-3">
+    <table id="result_table" class="table table-sm table-striped table-hover">
+      <thead class="thead-dark"><tr>
+        <th style="width:5%; text-align:center;" class="text-truncate"></th>
+        <th style="width:10%; text-align:left;" class="text-truncate">타입</th>
+        <th style="width:20%; text-align:left;" class="text-truncate">채널</th>
+        <th style="width:50%; text-align:left;" class="text-truncate">NOW</th>
+        <th style="width:15%; text-align:center;" class="text-truncate">Action</th>
+      </tr></thead>
+      <tbody id="channel-list">
+      <template id="channel-template"><tr>
+        <td scope="col" style="width:5%; text-align:center;" id="channel-idx" class="text-truncate"></td>
+        <td scope="col" style="width:10%; text-align:left;" id="channel-category" class="text-truncate"></td>
+        <td scope="col" style="width:20%; text-align:left;" id="channel-channel" class="text-truncate"></td>
+        <td scope="col" style="width:50%; text-align:left;" id="channel-current" class="text-truncate"></td>
+        <td scope="col" style="width:15%; text-align:center;" id="channel-action" class="text-truncate"></td>
+      </tr></template>
+      </tbody>
+    </table>
+  </div>
+
+</div> <!--전체-->
+
+<script type="text/javascript">
+
+var channelTemplate = document.querySelector('#channel-template');
+var channelScroller = document.querySelector('#channel-list');
+
+var video = document.getElementById('hjs1');
+var nowPlaying;
+video.addEventListener("pause", (event) => {
+  if (!nowPlaying) { return; }
+  nowPlaying.find('i.fa').removeClass('fa-pause').addClass('fa-play');  // to play
+});
+video.addEventListener("play", (event) => {
+  if (!nowPlaying) { return; }
+  nowPlaying.find('i.fa').removeClass('fa-play').addClass('fa-pause');  // to pause
+});
+var hls;
+
+$(document).ready(function(){
+  load_channel_list();
+});
+
+function timeAgo(date) {
+    const seconds = Math.floor((new Date() - date) / 1000);
+
+    const interval = Math.floor(seconds / 31536000);
+
+    if (interval > 1) {
+        return interval + "년 전";
+    }
+    if (interval === 1) {
+        return interval + "년 전";
+    }
+
+    const months = Math.floor(seconds / 2628000);
+    if (months > 1) {
+        return months + "개월 전";
+    }
+    if (months === 1) {
+        return months + "개월 전";
+    }
+
+    const days = Math.floor(seconds / 86400);
+    if (days > 1) {
+        return days + "일 전";
+    }
+    if (days === 1) {
+        return days + "일 전";
+    }
+
+    const hours = Math.floor(seconds / 3600);
+    if (hours > 1) {
+        return hours + "시간 전";
+    }
+    if (hours === 1) {
+        return hours + "시간 전";
+    }
+
+    const minutes = Math.floor(seconds / 60);
+    if (minutes > 1) {
+        return minutes + "분 전";
+    }
+    if (minutes === 1) {
+        return minutes + "분 전";
+    }
+
+    return "방금 전";
+}
+
+function src2ico(source) {
+  if (source === "wavve") {    
+    return "https://www.wavve.com/favicon.ico";
+  }
+  if (source === "mbc") {
+    return "https://img.imbc.com/2010_main/images/favi2018.ico";
+  }
+  if (source === "tving") {
+    return "https://www.tving.com/favicon.ico";
+  }
+  if (source === "kbs") {
+    return "https://s2.googleusercontent.com/s2/favicons?domain=https://onair.kbs.co.kr";
+  }
+  if (source === "sbs") {
+    return "https://www.sbs.co.kr/favicon.ico";
+  }
+  if (source === "streamlink") {
+    return 'https://avatars.githubusercontent.com/u/22243823?s=48&v=4';
+  }
+  if (source === "coupangplay") {
+    return 'https://assets.coupangplay.com/favicon.ico';
+  }
+  
+  return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII="
+}
+
+function load_channel_list() {
+  reset_channel_list('로딩중...');
+  globalSendCommand('broad_list', null, null, null, function(ret){
+    $('#list_info').html(`마지막 업데이트: ${ret.updated_at}`);
+    make_channel_list(ret.list);
+  });
+}
+
+
+$("body").on('click', '#list_channel_reload_btn', function(e) {
+  e.preventDefault();
+  load_channel_list(true);
+});
+
+function get_play_url(channel_id, web_play, callback) {
+  
+  globalSendCommand('play_url', channel_id, null, null, function(ret){
+    if (ret.data == null) {
+      notify('에러', 'danger');
+      return;
+    }
+    callback(ret);
+  });
+}
+
+function loadSource(url) {
+  if (hls) {
+    hls.destroy();
+    hls = null;
+  }
+  hls = new Hls();
+  hls.loadSource(url);
+  hls.attachMedia(video);
+  // https://github.com/video-dev/hls.js/issues/5989
+  while (video.firstChild) {
+    video.removeChild(video.lastChild);
+  }
+  const source = document.createElement('source');
+  source.src = url;
+  video.appendChild(source);
+  video.disableRemotePlayback = false;
+
+  hls.on(Hls.Events.ERROR, function (event, data) {
+    if (data.fatal) {
+      switch (data.type) {
+        case Hls.ErrorTypes.MEDIA_ERROR:
+          console.log('fatal media error encountered, try to recover');
+          hls.recoverMediaError();
+          break;
+        case Hls.ErrorTypes.NETWORK_ERROR:
+          console.error('fatal network error encountered', data);
+          // All retries and media options have been exhausted.
+          // Immediately trying to restart loading could cause loop loading.
+          // Consider modifying loading policies to best fit your asset and network
+          // conditions (manifestLoadPolicy, playlistLoadPolicy, fragLoadPolicy).
+          break;
+        default:
+          // cannot recover
+          hls.destroy();
+          break;
+      }
+    }
+  });
+  hls.on(Hls.Events.MANIFEST_PARSED,function() {
+    video.play();
+  });
+}
+
+$("body").on('click', '#play_btn', function(e){
+  e.preventDefault();
+  let wantPlay = $(this);
+  if (wantPlay.is(nowPlaying)) {
+    if (video.paused) { video.play(); } else { video.pause(); }
+    return
+  }
+  let source = "coupangplay";
+  let channel_name = wantPlay.closest('tr').find('#channel-channel').html();
+  let channel_id = wantPlay.closest('tr').find('#channel-channel').prop('title');
+  let current = wantPlay.closest('tr').find('#channel-current').html();
+  get_play_url(channel_id, true, function(ret) {
+    if (nowPlaying) {
+      nowPlaying.find('i.fa').removeClass('fa-pause').addClass('fa-play');  // to play
+    }
+    wantPlay.find('i.fa').removeClass('fa-play').addClass('fa-pause');  // to pause
+    $('#play_src').prop('title', source);
+    $('#play_src').prop('src', src2ico(source))
+    $('#play_info').html(`${channel_name} - ${current}`);
+    nowPlaying = wantPlay;
+    loadSource(ret.data);
+  });
+});
+
+$("body").on('click', '#play_url_btn', function(e){
+  e.preventDefault();
+  let wantPlay = $(this);
+  let channel_id = wantPlay.closest('tr').find('#channel-channel').prop('title');
+  let channel_name = wantPlay.closest('tr').find('#channel-channel').html();
+  let current = wantPlay.closest('tr').find('#channel-current').html();
+
+  get_play_url(channel_id, false, function(ret) {
+    str = ret.data + '<br><br>';
+    tmp = j_button('globalCliboardBtn', '클립보드 복사', {'text':ret.data}, 'success');
+    tmp += j_button('globalOpenBtn', '새창에서 열기', {'url':ret.data}, 'success');
+    str += j_button_group(tmp);
+    showModal(str, `${channel_name} - ${current}`, false);
+  });
+});
+
+
+function make_channel_list(data) {
+  if (data == null) {
+    return;
+  }
+  reset_channel_list();
+
+  count = 0;
+  for (i in data) {
+    let channel_clone = channelTemplate.content.cloneNode(true);
+    channel_clone.querySelector('#channel-idx').innerHTML = parseInt(i)+1;
+    channel_clone.querySelector('#channel-category').innerHTML += data[i].category;
+    channel_clone.querySelector('#channel-channel').innerHTML = data[i].channel || "";
+    channel_clone.querySelector('#channel-channel').title = data[i].url;
+    channel_clone.querySelector('#channel-current').innerHTML += data[i].current || "";
+    channel_clone.querySelector('#channel-current').title = data[i].id;
+
+    buttons = '';
+    buttons += j_button('play_btn', '<i class="fa fa-play px-1" aria-hidden="true"></i>', {}, 'secondary', false, true);
+    buttons += j_button('play_url_btn', '<i class="fa fa-external-link px-1" aria-hidden="true"></i>', {}, 'secondary', false, true);
+    buttons = j_button_group(buttons);
+    channel_clone.querySelector('#channel-action').innerHTML = buttons;
+
+    channelScroller.appendChild(channel_clone);
+    count++;
+  }
+  if (count == 0) reset_channel_list('데이터가 없습니다.');
+}
+
+function reset_channel_list(msg='') {
+  channelScroller.querySelectorAll('tr').forEach(e => e.remove());
+  if (msg != null && msg != '') {
+    channelScroller.insertAdjacentHTML('beforeend', `<tr><td colspan="6">${msg}</td></tr>`);
+  }
+}
+
+</script>
+{% endblock %}
