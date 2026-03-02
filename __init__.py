@@ -12,9 +12,3 @@ try:
     import yaml
 except ImportError:
     _run(["pip", "install", "pyyaml", "-q", "--break-system-packages"])
-
-# curl_cffi (브라우저 TLS 핑거프린트 위장)
-try:
-    import curl_cffi
-except ImportError:
-    _run(["pip", "install", "curl-cffi", "-q", "--break-system-packages"])
