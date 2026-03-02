@@ -20,7 +20,7 @@ except:
 
 class ModuleMain(PluginModuleBase):
     def __init__(self, P):
-        super(ModuleMain, self).__init__(P, name="main", first_menu="setting", scheduler_desc="쿠팡플레이")
+        super(ModuleMain, self).__init__(P, name="main", first_menu="setting", scheduler_desc="쿠팡플레이(테스트)")
         self.db_default = {
             f"{self.name}_db_version": "1",
             f"{self.name}_auto_start": "False",
