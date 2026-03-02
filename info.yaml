@@ -1,6 +1,6 @@
 title: "쿠팡플레이(테스트)"
 version: "1.1.1"
-package_name: "ff_cpp"
+package_name: "ff_cpp_test"
 developer: "ssagajikorea"
 description: "쿠팡플레이(테스트) 방송 FF플러그인"
-home: "https://github.com/sukajds/ff_cpp"
+home: "https://github.com/sukajds/ff_cpp_test"
